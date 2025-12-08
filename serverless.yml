@@ -1,0 +1,300 @@
+service: loan-eligibility-engine
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: python3.9
+  stage: ${opt:stage, 'dev'}
+  region: ${opt:region, 'us-east-1'}
+  memorySize: 512
+  timeout: 300
+  
+  environment:
+    STAGE: ${self:provider.stage}
+    DB_HOST: !GetAtt LoanEligibilityDB.Endpoint.Address
+    DB_PORT: !GetAtt LoanEligibilityDB.Endpoint.Port
+    DB_NAME: ${self:custom.dbName}
+    DB_USER: ${self:custom.dbUser}
+    DB_PASSWORD: ${ssm:/loan-eligibility/${self:provider.stage}/db-password~true}
+    CSV_BUCKET_NAME: ${self:custom.csvBucketName}
+    SES_FROM_EMAIL: ${env:SES_FROM_EMAIL}
+    N8N_WEBHOOK_URL: ${env:N8N_WEBHOOK_URL}
+    
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource:
+            - arn:aws:s3:::${self:custom.csvBucketName}/*
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource:
+            - arn:aws:s3:::${self:custom.csvBucketName}
+        - Effect: Allow
+          Action:
+            - ses:SendEmail
+            - ses:SendRawEmail
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - rds:DescribeDBInstances
+          Resource: '*'
+        - Effect: Allow
+          Action:
+            - secretsmanager:GetSecretValue
+          Resource: '*'
+
+custom:
+  dbName: loan_eligibility_db
+  dbUser: postgres
+  csvBucketName: ${self:service}-csv-uploads-${self:provider.stage}
+  
+  pythonRequirements:
+    dockerizePip: non-linux
+    layer: true
+    slim: true
+    strip: false
+
+functions:
+  # Function to generate pre-signed URL for CSV upload
+  uploadInitiator:
+    handler: src/handlers/upload_initiator.handler
+    events:
+      - http:
+          path: /upload/initiate
+          method: post
+          cors: true
+    environment:
+      CSV_BUCKET_NAME: ${self:custom.csvBucketName}
+  
+  # Function to process uploaded CSV
+  csvProcessor:
+    handler: src/handlers/csv_processor.handler
+    events:
+      - s3:
+          bucket: ${self:custom.csvBucketName}
+          event: s3:ObjectCreated:*
+          rules:
+            - suffix: .csv
+          existing: false
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    reservedConcurrency: 5
+  
+  # Function to trigger n8n webhook after CSV processing
+  webhookTrigger:
+    handler: src/handlers/webhook_trigger.handler
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+
+resources:
+  Resources:
+    # S3 Bucket for CSV uploads
+    CSVUploadBucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:custom.csvBucketName}
+        BucketEncryption:
+          ServerSideEncryptionConfiguration:
+            - ServerSideEncryptionByDefault:
+                SSEAlgorithm: AES256
+        VersioningConfiguration:
+          Status: Enabled
+        LifecycleConfiguration:
+          Rules:
+            - Id: DeleteOldFiles
+              Status: Enabled
+              ExpirationInDays: 30
+        CorsConfiguration:
+          CorsRules:
+            - AllowedOrigins:
+                - '*'
+              AllowedMethods:
+                - PUT
+                - POST
+                - GET
+              AllowedHeaders:
+                - '*'
+              MaxAge: 3000
+    
+    # RDS Security Group
+    DBSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Security group for RDS PostgreSQL
+        VpcId: !Ref VPC
+        SecurityGroupIngress:
+          - IpProtocol: tcp
+            FromPort: 5432
+            ToPort: 5432
+            SourceSecurityGroupId: !Ref LambdaSecurityGroup
+        SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+    
+    # Lambda Security Group
+    LambdaSecurityGroup:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Security group for Lambda functions
+        VpcId: !Ref VPC
+        SecurityGroupEgress:
+          - IpProtocol: -1
+            CidrIp: 0.0.0.0/0
+    
+    # VPC for RDS
+    VPC:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.0.0.0/16
+        EnableDnsHostnames: true
+        EnableDnsSupport: true
+        Tags:
+          - Key: Name
+            Value: ${self:service}-vpc-${self:provider.stage}
+    
+    # Subnet 1
+    Subnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: 10.0.1.0/24
+        AvailabilityZone: ${self:provider.region}a
+        Tags:
+          - Key: Name
+            Value: ${self:service}-subnet1-${self:provider.stage}
+    
+    # Subnet 2
+    Subnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref VPC
+        CidrBlock: 10.0.2.0/24
+        AvailabilityZone: ${self:provider.region}b
+        Tags:
+          - Key: Name
+            Value: ${self:service}-subnet2-${self:provider.stage}
+    
+    # DB Subnet Group
+    DBSubnetGroup:
+      Type: AWS::RDS::DBSubnetGroup
+      Properties:
+        DBSubnetGroupDescription: Subnet group for RDS
+        SubnetIds:
+          - !Ref Subnet1
+          - !Ref Subnet2
+    
+    # RDS PostgreSQL Instance
+    LoanEligibilityDB:
+      Type: AWS::RDS::DBInstance
+      DeletionPolicy: Snapshot
+      Properties:
+        DBInstanceIdentifier: ${self:service}-db-${self:provider.stage}
+        Engine: postgres
+        EngineVersion: '14.7'
+        DBInstanceClass: db.t3.micro
+        AllocatedStorage: '20'
+        StorageType: gp2
+        StorageEncrypted: true
+        DBName: ${self:custom.dbName}
+        MasterUsername: ${self:custom.dbUser}
+        MasterUserPassword: ${ssm:/loan-eligibility/${self:provider.stage}/db-password~true}
+        VPCSecurityGroups:
+          - !GetAtt DBSecurityGroup.GroupId
+        DBSubnetGroupName: !Ref DBSubnetGroup
+        PubliclyAccessible: false
+        BackupRetentionPeriod: 7
+        PreferredBackupWindow: 03:00-04:00
+        PreferredMaintenanceWindow: mon:04:00-mon:05:00
+        MultiAZ: false
+        Tags:
+          - Key: Name
+            Value: ${self:service}-db-${self:provider.stage}
+    
+    # Internet Gateway
+    InternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:service}-igw-${self:provider.stage}
+    
+    # Attach Internet Gateway to VPC
+    AttachGateway:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref VPC
+        InternetGatewayId: !Ref InternetGateway
+    
+    # Route Table
+    RouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref VPC
+        Tags:
+          - Key: Name
+            Value: ${self:service}-rt-${self:provider.stage}
+    
+    # Route
+    Route:
+      Type: AWS::EC2::Route
+      DependsOn: AttachGateway
+      Properties:
+        RouteTableId: !Ref RouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref InternetGateway
+    
+    # Subnet Route Table Association 1
+    SubnetRouteTableAssociation1:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref Subnet1
+        RouteTableId: !Ref RouteTable
+    
+    # Subnet Route Table Association 2
+    SubnetRouteTableAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref Subnet2
+        RouteTableId: !Ref RouteTable
+
+  Outputs:
+    CSVBucketName:
+      Description: S3 bucket for CSV uploads
+      Value: ${self:custom.csvBucketName}
+      Export:
+        Name: ${self:service}-${self:provider.stage}-csv-bucket
+    
+    DBEndpoint:
+      Description: RDS PostgreSQL endpoint
+      Value: !GetAtt LoanEligibilityDB.Endpoint.Address
+      Export:
+        Name: ${self:service}-${self:provider.stage}-db-endpoint
+    
+    DBPort:
+      Description: RDS PostgreSQL port
+      Value: !GetAtt LoanEligibilityDB.Endpoint.Port
+      Export:
+        Name: ${self:service}-${self:provider.stage}-db-port
+    
+    UploadInitiatorUrl:
+      Description: API endpoint for initiating CSV upload
+      Value:
+        Fn::Join:
+          - ''
+          - - 'https://'
+            - !Ref ApiGatewayRestApi
+            - '.execute-api.'
+            - ${self:provider.region}
+            - '.amazonaws.com/'
+            - ${self:provider.stage}
+            - '/upload/initiate'
+
+plugins:
+  - serverless-python-requirements

@@ -1,0 +1,22 @@
+{
+  "name": "loan-eligibility-engine",
+  "version": "1.0.0",
+  "description": "Automated loan eligibility matching system",
+  "scripts": {
+    "deploy": "serverless deploy",
+    "deploy:dev": "serverless deploy --stage dev",
+    "deploy:prod": "serverless deploy --stage prod",
+    "remove": "serverless remove",
+    "logs": "serverless logs -f csvProcessor -t",
+    "invoke:local": "serverless invoke local -f csvProcessor -p test/sample-event.json",
+    "start:n8n": "docker-compose up -d",
+    "stop:n8n": "docker-compose down",
+    "logs:n8n": "docker-compose logs -f n8n",
+    "test": "pytest tests/"
+  },
+  "devDependencies": {
+    "serverless": "^3.38.0",
+    "serverless-python-requirements": "^6.1.0"
+  },
+  "dependencies": {}
+}

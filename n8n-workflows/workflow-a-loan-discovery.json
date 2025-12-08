@@ -1,0 +1,198 @@
+{
+  "name": "Workflow A: Loan Product Discovery",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule Daily Crawl",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "url": "https://www.bankrate.com/loans/personal-loans/",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "crawl-bankrate",
+      "name": "Crawl BankRate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 200]
+    },
+    {
+      "parameters": {
+        "url": "https://www.nerdwallet.com/best/loans/personal-loans",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "crawl-nerdwallet",
+      "name": "Crawl NerdWallet",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [450, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse BankRate HTML\nconst html = $input.item.json.body;\nconst products = [];\n\n// Extract loan products using regex patterns\n// This is a simplified example - actual implementation needs robust HTML parsing\nconst productPattern = /<div class=\"product-card\"[^>]*>(.*?)<\\/div>/gs;\nconst matches = [...html.matchAll(productPattern)];\n\nfor (const match of matches) {\n  const productHtml = match[1];\n  \n  // Extract product details\n  const nameMatch = productHtml.match(/<h3[^>]*>(.*?)<\\/h3>/);\n  const rateMatch = productHtml.match(/([0-9.]+)%\\s*APR/);\n  const minIncomeMatch = productHtml.match(/\\$([0-9,]+)\\s*min\\s*income/i);\n  const minScoreMatch = productHtml.match(/([0-9]+)\\s*min\\s*credit/i);\n  \n  if (nameMatch && rateMatch) {\n    products.push({\n      product_name: nameMatch[1].trim(),\n      provider: 'BankRate Listed',\n      interest_rate: parseFloat(rateMatch[1]),\n      min_income: minIncomeMatch ? parseFloat(minIncomeMatch[1].replace(/,/g, '')) : 0,\n      min_credit_score: minScoreMatch ? parseInt(minScoreMatch[1]) : 600,\n      min_age: 18,\n      source_url: 'https://www.bankrate.com/loans/personal-loans/',\n      last_updated: new Date().toISOString()\n    });\n  }\n}\n\n// Return array of products\nreturn products.map(p => ({ json: p }));"
+      },
+      "id": "parse-bankrate",
+      "name": "Parse BankRate Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 200]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse NerdWallet HTML\nconst html = $input.item.json.body;\nconst products = [];\n\n// Extract loan products from JSON-LD or structured data\ntry {\n  const jsonLdMatch = html.match(/<script type=\"application\\/ld\\+json\">(.*?)<\\/script>/s);\n  if (jsonLdMatch) {\n    const data = JSON.parse(jsonLdMatch[1]);\n    // Process structured data\n  }\n} catch (e) {\n  console.log('JSON-LD parsing failed, using regex fallback');\n}\n\n// Fallback: Extract using patterns\nconst listingPattern = /<div class=\"listing-item\"[^>]*>(.*?)<\\/div>/gs;\nconst listings = [...html.matchAll(listingPattern)];\n\nfor (const listing of listings) {\n  const content = listing[1];\n  \n  const nameMatch = content.match(/<h2[^>]*>(.*?)<\\/h2>/);\n  const rateMatch = content.match(/([0-9.]+)%/);\n  const amountMatch = content.match(/Up to \\$([0-9,]+)/);\n  \n  if (nameMatch && rateMatch) {\n    products.push({\n      product_name: nameMatch[1].trim(),\n      provider: 'NerdWallet Listed',\n      interest_rate: parseFloat(rateMatch[1]),\n      min_income: 35000,\n      min_credit_score: 650,\n      min_age: 18,\n      max_loan_amount: amountMatch ? parseFloat(amountMatch[1].replace(/,/g, '')) : null,\n      source_url: 'https://www.nerdwallet.com/best/loans/personal-loans',\n      last_updated: new Date().toISOString()\n    });\n  }\n}\n\nreturn products.map(p => ({ json: p }));"
+      },
+      "id": "parse-nerdwallet",
+      "name": "Parse NerdWallet Data",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [650, 400]
+    },
+    {
+      "parameters": {},
+      "id": "merge-sources",
+      "name": "Merge All Sources",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO loan_products (product_name, provider, interest_rate, min_income, min_credit_score, min_age, max_loan_amount, source_url, last_updated)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\nON CONFLICT (product_name, provider) \nDO UPDATE SET\n  interest_rate = EXCLUDED.interest_rate,\n  min_income = EXCLUDED.min_income,\n  min_credit_score = EXCLUDED.min_credit_score,\n  last_updated = EXCLUDED.last_updated;",
+        "additionalFields": {
+          "mode": "transaction"
+        }
+      },
+      "id": "save-to-db",
+      "name": "Save to PostgreSQL",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log crawl results\nconst itemCount = $input.all().length;\nconst timestamp = new Date().toISOString();\n\nconsole.log(`Loan Product Discovery completed at ${timestamp}`);\nconsole.log(`Total products discovered: ${itemCount}`);\n\nreturn [{\n  json: {\n    success: true,\n    products_count: itemCount,\n    timestamp: timestamp,\n    message: `Successfully discovered and stored ${itemCount} loan products`\n  }\n}];"
+      },
+      "id": "log-results",
+      "name": "Log Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    }
+  ],
+  "connections": {
+    "Schedule Daily Crawl": {
+      "main": [
+        [
+          {
+            "node": "Crawl BankRate",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Crawl NerdWallet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crawl BankRate": {
+      "main": [
+        [
+          {
+            "node": "Parse BankRate Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Crawl NerdWallet": {
+      "main": [
+        [
+          {
+            "node": "Parse NerdWallet Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse BankRate Data": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse NerdWallet Data": {
+      "main": [
+        [
+          {
+            "node": "Merge All Sources",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge All Sources": {
+      "main": [
+        [
+          {
+            "node": "Save to PostgreSQL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save to PostgreSQL": {
+      "main": [
+        [
+          {
+            "node": "Log Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-12-08T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,11 @@
+user_id,email,monthly_income,credit_score,employment_status,age
+,john.doe@example.com,65000,780,full-time,32
+,jane.smith@example.com,45000,720,self-employed,28
+,bob.johnson@example.com,80000,810,full-time,45
+,alice.williams@example.com,35000,650,part-time,24
+,charlie.brown@example.com,55000,700,full-time,38
+,diana.davis@example.com,90000,825,full-time,52
+,edward.miller@example.com,40000,680,self-employed,29
+,fiona.wilson@example.com,70000,760,full-time,41
+,george.moore@example.com,48000,690,full-time,33
+,hannah.taylor@example.com,62000,745,self-employed,36

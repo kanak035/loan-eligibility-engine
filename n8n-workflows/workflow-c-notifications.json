@@ -1,0 +1,193 @@
+{
+  "name": "Workflow C: User Notification",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/15 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-check",
+      "name": "Check Every 15 Min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT DISTINCT u.user_id, u.email, u.monthly_income, u.credit_score\nFROM users u\nINNER JOIN matches m ON u.user_id = m.user_id\nWHERE m.notified = FALSE\nAND m.created_at >= NOW() - INTERVAL '24 hours'\nLIMIT 50;",
+        "options": {}
+      },
+      "id": "fetch-unnotified-users",
+      "name": "Fetch Unnotified Users",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT m.match_id, m.match_score, p.product_name, p.provider, p.interest_rate, p.max_loan_amount, p.loan_term_months, p.source_url\nFROM matches m\nINNER JOIN loan_products p ON m.product_id = p.product_id\nWHERE m.user_id = $1\nAND m.notified = FALSE\nORDER BY m.match_score DESC\nLIMIT 5;",
+        "options": {}
+      },
+      "id": "fetch-user-matches",
+      "name": "Fetch User's Matches",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [650, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build personalized email content\nconst user = $node['Fetch Unnotified Users'].json;\nconst matches = $input.all().map(item => item.json);\n\n// Sort by match score\nmatches.sort((a, b) => b.match_score - a.match_score);\n\n// Build email HTML\nlet productListHtml = '';\n\nmatches.forEach((match, index) => {\n  const scorePercent = Math.round(match.match_score * 100);\n  const loanAmount = match.max_loan_amount ? `$${match.max_loan_amount.toLocaleString()}` : 'Varies';\n  const term = match.loan_term_months ? `${match.loan_term_months} months` : 'Flexible';\n  \n  productListHtml += `\n    <tr style=\"border-bottom: 1px solid #eee;\">\n      <td style=\"padding: 20px;\">\n        <h3 style=\"margin: 0 0 10px 0; color: #2c3e50;\">${index + 1}. ${match.product_name}</h3>\n        <p style=\"margin: 5px 0; color: #7f8c8d;\"><strong>Provider:</strong> ${match.provider}</p>\n        <p style=\"margin: 5px 0; color: #27ae60; font-size: 18px;\"><strong>Interest Rate:</strong> ${match.interest_rate}% APR</p>\n        <p style=\"margin: 5px 0; color: #7f8c8d;\"><strong>Loan Amount:</strong> Up to ${loanAmount}</p>\n        <p style=\"margin: 5px 0; color: #7f8c8d;\"><strong>Term:</strong> ${term}</p>\n        <p style=\"margin: 5px 0;\"><span style=\"background: #3498db; color: white; padding: 3px 8px; border-radius: 3px; font-size: 12px;\">Match Score: ${scorePercent}%</span></p>\n        ${match.source_url ? `<p style=\"margin: 10px 0 0 0;\"><a href=\"${match.source_url}\" style=\"color: #3498db; text-decoration: none;\">Learn More →</a></p>` : ''}\n      </td>\n    </tr>\n  `;\n});\n\nconst emailHtml = `\n<!DOCTYPE html>\n<html>\n<head>\n  <meta charset=\"utf-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <title>Your Loan Pre-Qualification Results</title>\n</head>\n<body style=\"margin: 0; padding: 0; font-family: Arial, sans-serif; background-color: #f4f4f4;\">\n  <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color: #f4f4f4; padding: 20px;\">\n    <tr>\n      <td align=\"center\">\n        <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);\">\n          <!-- Header -->\n          <tr>\n            <td style=\"background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 8px 8px 0 0;\">\n              <h1 style=\"margin: 0; color: #ffffff; font-size: 28px;\">🎉 You're Pre-Qualified!</h1>\n              <p style=\"margin: 10px 0 0 0; color: #ffffff; font-size: 16px;\">Personal Loan Opportunities Await</p>\n            </td>\n          </tr>\n          \n          <!-- Content -->\n          <tr>\n            <td style=\"padding: 30px;\">\n              <p style=\"margin: 0 0 20px 0; color: #2c3e50; font-size: 16px;\">Great news! Based on your profile, you may be eligible for the following personal loan products:</p>\n              \n              <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" style=\"border: 1px solid #eee; border-radius: 4px;\">\n                ${productListHtml}\n              </table>\n              \n              <div style=\"margin-top: 30px; padding: 20px; background-color: #ecf0f1; border-radius: 4px;\">\n                <h3 style=\"margin: 0 0 10px 0; color: #2c3e50;\">📋 Next Steps:</h3>\n                <ol style=\"margin: 10px 0; padding-left: 20px; color: #34495e;\">\n                  <li style=\"margin: 5px 0;\">Review each loan product carefully</li>\n                  <li style=\"margin: 5px 0;\">Compare interest rates and terms</li>\n                  <li style=\"margin: 5px 0;\">Click \"Learn More\" to apply directly</li>\n                  <li style=\"margin: 5px 0;\">Lenders will perform a final review</li>\n                </ol>\n              </div>\n              \n              <p style=\"margin: 20px 0 0 0; color: #7f8c8d; font-size: 14px;\"><strong>Important:</strong> This is an automated pre-qualification based on the information provided. Final loan approval is subject to the lender's complete underwriting process.</p>\n            </td>\n          </tr>\n          \n          <!-- Footer -->\n          <tr>\n            <td style=\"background-color: #34495e; padding: 20px; text-align: center; border-radius: 0 0 8px 8px;\">\n              <p style=\"margin: 0; color: #bdc3c7; font-size: 12px;\">This email was sent by the Loan Eligibility Engine</p>\n              <p style=\"margin: 5px 0 0 0; color: #bdc3c7; font-size: 12px;\">Your Income: $${user.monthly_income.toLocaleString()} | Credit Score: ${user.credit_score}</p>\n            </td>\n          </tr>\n        </table>\n      </td>\n    </tr>\n  </table>\n</body>\n</html>\n`;\n\nconst plainText = `\nYou're Pre-Qualified for Personal Loans!\n\nGreat news! Based on your profile, you may be eligible for the following personal loan products:\n\n${matches.map((m, i) => `\n${i + 1}. ${m.product_name} by ${m.provider}\n   Interest Rate: ${m.interest_rate}% APR\n   Loan Amount: Up to $${m.max_loan_amount?.toLocaleString() || 'Varies'}\n   Match Score: ${Math.round(m.match_score * 100)}%\n   ${m.source_url ? `Learn More: ${m.source_url}` : ''}\n`).join('\\n')}\n\nNext Steps:\n1. Review each loan product carefully\n2. Compare interest rates and terms\n3. Visit the links to apply directly\n4. Lenders will perform a final review\n\nThis is an automated pre-qualification. Final approval depends on the lender's review.\n\nYour Profile: Income $${user.monthly_income.toLocaleString()}, Credit Score ${user.credit_score}\n`;\n\nreturn [{\n  json: {\n    user_id: user.user_id,\n    email: user.email,\n    subject: `You're Pre-Qualified for ${matches.length} Personal Loan${matches.length > 1 ? 's' : ''}!`,\n    html: emailHtml,\n    text: plainText,\n    match_ids: matches.map(m => m.match_id)\n  }\n}];"
+      },
+      "id": "build-email",
+      "name": "Build Email Content",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "fromEmail": "={{ $env.SES_FROM_EMAIL }}",
+        "toEmail": "={{ $json.email }}",
+        "subject": "={{ $json.subject }}",
+        "emailType": "html",
+        "htmlMessage": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "send-email-ses",
+      "name": "Send Email via SES",
+      "type": "n8n-nodes-base.awsSes",
+      "typeVersion": 1,
+      "position": [1050, 300],
+      "credentials": {
+        "aws": {
+          "id": "3",
+          "name": "AWS Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE matches\nSET notified = TRUE, notified_at = CURRENT_TIMESTAMP\nWHERE match_id = ANY($1);",
+        "options": {}
+      },
+      "id": "mark-notified",
+      "name": "Mark as Notified",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 300],
+      "credentials": {
+        "postgres": {
+          "id": "1",
+          "name": "Loan Eligibility DB"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log notification results\nconst emailsSent = $input.all().length;\nconst timestamp = new Date().toISOString();\n\nconsole.log(`User Notification workflow completed at ${timestamp}`);\nconsole.log(`Emails sent: ${emailsSent}`);\n\nreturn [{\n  json: {\n    success: true,\n    emails_sent: emailsSent,\n    timestamp: timestamp\n  }\n}];"
+      },
+      "id": "log-results",
+      "name": "Log Results",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    }
+  ],
+  "connections": {
+    "Check Every 15 Min": {
+      "main": [
+        [
+          {
+            "node": "Fetch Unnotified Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Unnotified Users": {
+      "main": [
+        [
+          {
+            "node": "Fetch User's Matches",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch User's Matches": {
+      "main": [
+        [
+          {
+            "node": "Build Email Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Email Content": {
+      "main": [
+        [
+          {
+            "node": "Send Email via SES",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email via SES": {
+      "main": [
+        [
+          {
+            "node": "Mark as Notified",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Notified": {
+      "main": [
+        [
+          {
+            "node": "Log Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-12-08T00:00:00.000Z",
+  "versionId": "1"
+}

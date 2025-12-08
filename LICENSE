@@ -1,0 +1,78 @@
+MIT License
+
+Copyright (c) 2025 Loan Eligibility Engine
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+---
+
+## Third-Party Licenses
+
+This project uses the following open-source libraries:
+
+### Python Dependencies
+- psycopg2-binary: LGPL with exceptions
+- boto3: Apache License 2.0
+- pandas: BSD 3-Clause License
+- python-dotenv: BSD 3-Clause License
+- requests: Apache License 2.0
+- sqlalchemy: MIT License
+- pydantic: MIT License
+
+### Node.js Dependencies
+- serverless: MIT License
+- serverless-python-requirements: MIT License
+
+### Docker Images
+- n8n: Apache License 2.0 with Commons Clause
+- postgres: PostgreSQL License
+
+### Cloud Services
+- AWS Services: Governed by AWS Customer Agreement
+- Google Gemini API: Governed by Google Cloud Terms of Service
+
+---
+
+## Educational Use Notice
+
+This project was created as part of an SDE Intern Backend assignment and is intended for educational purposes. The loan matching logic, web crawling examples, and email templates are simplified demonstrations and should not be used in production without proper legal review, compliance verification, and enhanced security measures.
+
+---
+
+## Data Privacy Notice
+
+This system processes personal financial information. In a production environment, ensure compliance with:
+- General Data Protection Regulation (GDPR)
+- California Consumer Privacy Act (CCPA)
+- Financial data protection regulations in your jurisdiction
+- Industry standards (PCI DSS if handling payment data)
+
+Users must be informed about:
+- What data is collected
+- How it's used
+- How it's stored and protected
+- Their rights to access, modify, and delete their data
+
+---
+
+## Disclaimer
+
+THE SOFTWARE IS PROVIDED FOR EDUCATIONAL PURPOSES ONLY. THE AUTHORS DO NOT PROVIDE ANY WARRANTIES REGARDING THE ACCURACY OF LOAN MATCHING, FINANCIAL ADVICE, OR FITNESS FOR ANY PARTICULAR PURPOSE. USERS SHOULD CONDUCT THEIR OWN RESEARCH AND CONSULT WITH FINANCIAL PROFESSIONALS BEFORE MAKING ANY FINANCIAL DECISIONS.
+
+WEB SCRAPING SHOULD COMPLY WITH THE ROBOTS.TXT AND TERMS OF SERVICE OF TARGET WEBSITES. USERS ARE RESPONSIBLE FOR ENSURING LEGAL COMPLIANCE IN THEIR JURISDICTION.

@@ -2,7 +2,7 @@
 
 An automated system that ingests user data, discovers personal loan products from public websites, matches users to eligible products, and notifies them via email.
 
-## 🏗️ Architecture Overview
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐

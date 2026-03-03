@@ -414,15 +414,6 @@ python scripts/test_db.py
 - Check SES is out of sandbox mode
 - Review Lambda CloudWatch logs
 
-## 📝 License
-
-This project is for educational purposes as part of an SDE Intern assignment.
-
-## 👥 Contributors
-
-- Developer: [Your Name]
-- Reviewers: saurabh@clickpe.ai, harsh.srivastav@clickpe.ai
-
 ## 🙏 Acknowledgments
 
 - n8n community for workflow automation
